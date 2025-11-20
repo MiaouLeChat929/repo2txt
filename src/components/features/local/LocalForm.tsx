@@ -4,7 +4,7 @@ import { processLocalDirectory, extractZipContents, LocalFile } from '@/lib/loca
 import { toast } from 'sonner';
 
 interface LocalFormProps {
-    onTreeFetched: (tree: LocalFile[]) => void;
+    onTreeFetched: (tree: LocalFile[], token?: string, sourceName?: string) => void;
     onLoading: (loading: boolean) => void;
     onZipMapUpdate: (map: any) => void;
 }
@@ -16,9 +16,14 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
 
         onLoading(true);
         try {
+            // Guess folder name from first file? or just use generic
+            // webkitRelativePath usually is "Folder/file.txt"
+            let folderName = 'local-dir';
+            if (e.target.files[0]?.webkitRelativePath) {
+                folderName = e.target.files[0].webkitRelativePath.split('/')[0];
+            }
+
             const { tree, gitignoreContent } = await processLocalDirectory(e.target.files);
-            // TODO: Implement gitignore filtering logic here or in parent
-            // Currently passing raw tree. Ideally we filter before setting state.
             // Importing isIgnored from local.ts
             const { isIgnored } = await import('@/lib/local');
 
@@ -26,7 +31,7 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
 
             // Reset zip map as we are in directory mode
             onZipMapUpdate({});
-            onTreeFetched(filteredTree);
+            onTreeFetched(filteredTree, undefined, folderName);
             toast.success("Directory loaded successfully");
         } catch (error: any) {
              toast.error("Error processing directory", {
@@ -45,13 +50,15 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
 
         onLoading(true);
         try {
+            const zipName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+
             const { tree, gitignoreContent, pathZipMap } = await extractZipContents(file);
             const { isIgnored } = await import('@/lib/local');
 
             const filteredTree = tree.filter(file => !isIgnored(file.path, gitignoreContent));
 
             onZipMapUpdate(pathZipMap);
-            onTreeFetched(filteredTree);
+            onTreeFetched(filteredTree, undefined, zipName);
              toast.success("Zip file loaded successfully");
         } catch (error: any) {
              toast.error("Error processing zip file", {

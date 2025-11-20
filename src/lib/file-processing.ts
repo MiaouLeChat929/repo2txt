@@ -9,6 +9,12 @@ export interface TreeNode {
     [key: string]: TreeNode | FileItem;
 }
 
+// Helper to check if an item is a file (blob) or directory (tree)
+// Both GitHubFile and LocalFile use type: 'blob' for files and 'tree' for directories (though LocalFile only produces blobs usually)
+export function isFileItem(item: FileItem | TreeNode): item is FileItem {
+    return 'type' in item && (item.type === 'blob' || item.type === 'file'); // Handle both just in case, though definition says 'blob'
+}
+
 // Sort contents alphabetically and by directory/file
 export function sortContents(a: FileItem, b: FileItem) {
     if (!a || !b || !a.path || !b.path) return 0;
@@ -19,16 +25,8 @@ export function sortContents(a: FileItem, b: FileItem) {
 
     for (let i = 0; i < minLength; i++) {
         if (aPath[i] !== bPath[i]) {
-            // If at same depth, check if one is a folder and one is a file
-            // In this logic, folders usually come first or last?
-            // The original code comments: "a is a directory, b is a file or subdirectory"
-
-            // This logic is slightly tricky to infer purely from path without "type" awareness at each level.
-            // Original logic:
-            // if (i === aPath.length - 1 && i < bPath.length - 1) return 1; // a is file, b is folder (actually a is parent of b?)
-
-            if (i === aPath.length - 1 && i < bPath.length - 1) return 1; // a is a file/leaf at this level, b continues deeper
-            if (i === bPath.length - 1 && i < aPath.length - 1) return -1;  // b is a file/leaf, a continues deeper
+            if (i === aPath.length - 1 && i < bPath.length - 1) return 1;
+            if (i === bPath.length - 1 && i < aPath.length - 1) return -1;
 
             return aPath[i].localeCompare(bPath[i]);
         }
@@ -61,7 +59,6 @@ export function generateOutputText(contents: FileContent[]): { text: string, tok
     function buildIndex(node: any, prefix = '') {
         let result = '';
         const entries = Object.entries(node);
-        // Sort entries at this level? Keys are strings.
 
         entries.forEach(([name, subNode], index) => {
             const isLastItem = index === entries.length - 1;
