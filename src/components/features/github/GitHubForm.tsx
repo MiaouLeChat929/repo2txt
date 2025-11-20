@@ -18,7 +18,7 @@ import {
 
 
 interface GitHubFormProps {
-    onTreeFetched: (tree: GitHubFile[], token?: string) => void;
+    onTreeFetched: (tree: GitHubFile[], token?: string, sourceName?: string) => void;
     onLoading: (loading: boolean) => void;
 }
 
@@ -64,33 +64,23 @@ export function GitHubForm({ onTreeFetched, onLoading }: GitHubFormProps) {
             const sha = await fetchRepoSha(owner, repo, refFromUrl, pathFromUrl, token);
             const tree = await fetchRepoTree(owner, repo, sha, token);
 
-            // Add path context back if we are in a subdirectory,
-            // the tree returned by recursive fetch is relative to the SHA we fetched.
-            // If we fetched a subdirectory SHA, the paths in 'tree' are relative to that subdirectory.
-            // We might want to preserve the full path for display?
-            // Actually the current fetchRepoTree uses recursive=1 on the SHA.
-            // If the SHA is a subdirectory, the paths returned are relative to that subdirectory.
-            // The original code didn't seem to prepend the pathFromUrl. Let's check legacy logic.
-            // Legacy logic: displayDirectoryStructure(tree) directly.
-            // But wait, if I browse `github.com/user/repo/tree/main/src`, I expect to see `src` content.
-            // If the API returns `index.ts` (inside src), showing `index.ts` is correct.
-            // But when we display the final output, do we want `src/index.ts`?
-            // Legacy code uses `item.path`.
-
-            // If pathFromUrl is present, we should probably prepend it to the item paths IF we want the full repo path.
-            // But the original code just passed the tree.
-            // However, `fetchRepoSha` returns the SHA of the *object* at that path.
-            // `fetchRepoTree` fetches the tree of that SHA.
-            // So the paths in the result are relative to that object.
-
-            // Let's stick to original behavior for now.
-
-            onTreeFetched(tree, token);
+            onTreeFetched(tree, token, repoUrl); // Pass repoUrl as source
             toast.success("Repository structure fetched successfully");
         } catch (error: any) {
-            toast.error("Error fetching repository", {
-                description: error.message
-            });
+            let message = "Error fetching repository";
+            let description = error.message;
+
+            if (error.message.includes("404")) {
+                description = "Repository not found. Check the URL or verify it is public (or provide a token).";
+            } else if (error.message.includes("403") || error.message.includes("rate limit")) {
+                message = "API Limit Reached";
+                description = "GitHub API rate limit exceeded. Please use a Personal Access Token.";
+            } else if (error.message.includes("401")) {
+                message = "Authentication Failed";
+                description = "Invalid token. Please check your Personal Access Token.";
+            }
+
+            toast.error(message, { description });
         } finally {
             onLoading(false);
         }

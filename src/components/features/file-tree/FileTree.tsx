@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChevronRight, ChevronDown, File as FileIcon, Folder as FolderIcon } from 'lucide-react';
+import { ChevronRight, ChevronDown, File as FileIcon, Folder as FolderIcon, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { TreeNode, FileItem } from '@/lib/file-processing';
+import { TreeNode, FileItem, isFileItem } from '@/lib/file-processing';
 
 interface FileTreeProps {
     tree: TreeNode;
+    selectedFiles: FileItem[]; // Controlled prop
     onSelectionChange: (selectedFiles: FileItem[]) => void;
+    outliers?: Set<string>;
 }
 
 // Helper to get all file items recursively
 const getAllFiles = (node: TreeNode): FileItem[] => {
     let files: FileItem[] = [];
     Object.values(node).forEach(value => {
-        if ('path' in value && 'type' in value && value.type === 'blob') {
+        // Use helper to detect files (blob or file type)
+        if (isFileItem(value as FileItem | TreeNode)) {
             files.push(value as FileItem);
-        } else if (typeof value === 'object') {
+        } else if (typeof value === 'object' && value !== null) {
             files = [...files, ...getAllFiles(value as TreeNode)];
         }
     });
@@ -25,21 +28,23 @@ const getAllFiles = (node: TreeNode): FileItem[] => {
 interface TreeNodeComponentProps {
     name: string;
     node: TreeNode | FileItem;
-    selectedFiles: Set<string>;
+    selectedFilesSet: Set<string>;
     onToggle: (path: string, checked: boolean) => void;
+    outliers?: Set<string>;
     level?: number;
 }
 
-const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selectedFiles, onToggle, level = 0 }) => {
+const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selectedFilesSet, onToggle, outliers, level = 0 }) => {
     const [isOpen, setIsOpen] = useState(true);
-    const isFile = 'type' in node && node.type === 'blob';
+
+    const isFile = isFileItem(node as FileItem | TreeNode);
 
     // Calculate check state for directory
     const getDirectoryState = (dirNode: TreeNode): { checked: boolean; indeterminate: boolean } => {
         const files = getAllFiles(dirNode);
         if (files.length === 0) return { checked: false, indeterminate: false };
 
-        const checkedCount = files.filter(f => selectedFiles.has(f.path)).length;
+        const checkedCount = files.filter(f => selectedFilesSet.has(f.path)).length;
 
         if (checkedCount === 0) return { checked: false, indeterminate: false };
         if (checkedCount === files.length) return { checked: true, indeterminate: false };
@@ -57,15 +62,22 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
 
     if (isFile) {
         const fileNode = node as FileItem;
+        const isOutlier = outliers?.has(fileNode.path);
+
         return (
             <div className="flex items-center py-1 hover:bg-accent/50 rounded px-2" style={{ paddingLeft: `${level * 1.5}rem` }}>
                 <Checkbox
-                    checked={selectedFiles.has(fileNode.path)}
+                    checked={selectedFilesSet.has(fileNode.path)}
                     onCheckedChange={(checked) => handleCheckboxChange(checked as boolean)}
                     className="mr-2"
                 />
                 <FileIcon className="w-4 h-4 mr-2 text-muted-foreground" />
-                <span className="text-sm truncate">{name}</span>
+                <span className={cn("text-sm truncate flex-1", isOutlier && "text-amber-600")}>
+                    {name}
+                </span>
+                {isOutlier && (
+                    <AlertTriangle className="w-3 h-3 text-amber-500 ml-2" title="Statistically large file (Outlier)" />
+                )}
             </div>
         );
     }
@@ -77,12 +89,9 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
         <div>
             <div className="flex items-center py-1 hover:bg-accent/50 rounded px-2" style={{ paddingLeft: `${level * 1.5}rem` }}>
                 <Checkbox
-                    checked={dirState.checked || dirState.indeterminate} // Visual hack: Shadcn checkbox indeterminate handling
+                    checked={dirState.checked || dirState.indeterminate} // Visual hack
                     onCheckedChange={(checked) => handleCheckboxChange(checked as boolean)}
-                    className={cn("mr-2", dirState.indeterminate && "opacity-50")} // Basic indeterminate visual
-                    // Note: Real indeterminate state requires ref manipulation in Radix/HTML,
-                    // simpler here to just trust 'checked' prop logic or custom icon if needed.
-                    // Shadcn Checkbox doesn't explicitly export indeterminate prop but handles it via CheckedState.
+                    className={cn("mr-2", dirState.indeterminate && "opacity-50")}
                 />
                  <button
                     onClick={() => setIsOpen(!isOpen)}
@@ -100,8 +109,9 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
                             key={childName}
                             name={childName}
                             node={childNode}
-                            selectedFiles={selectedFiles}
+                            selectedFilesSet={selectedFilesSet}
                             onToggle={onToggle}
+                            outliers={outliers}
                             level={level + 1}
                         />
                     ))}
@@ -111,79 +121,74 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
     );
 };
 
-export function FileTree({ tree, onSelectionChange }: FileTreeProps) {
-    const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+export function FileTree({ tree, selectedFiles, onSelectionChange, outliers }: FileTreeProps) {
+    // Derived state for efficient lookups
+    const [selectedFilesSet, setSelectedFilesSet] = useState<Set<string>>(new Set());
     const [extensions, setExtensions] = useState<string[]>([]);
     const [allFiles, setAllFiles] = useState<FileItem[]>([]);
 
-    // Initialize extensions and files when tree changes
+    // Sync Set when selectedFiles prop changes
+    useEffect(() => {
+        setSelectedFilesSet(new Set(selectedFiles.map(f => f.path)));
+    }, [selectedFiles]);
+
+    // Initialize extensions and allFiles when tree changes
     useEffect(() => {
         const files = getAllFiles(tree);
         setAllFiles(files);
-
-        // Default selection logic: select common text files
-        const commonExtensions = ['.js', '.py', '.java', '.cpp', '.html', '.css', '.ts', '.jsx', '.tsx', '.json', '.md', '.txt'];
-        const initialSelection = new Set<string>();
-
-        files.forEach(f => {
-            const ext = '.' + f.path.split('.').pop()?.toLowerCase();
-            if (commonExtensions.includes(ext)) {
-                initialSelection.add(f.path);
-            }
-        });
-        setSelectedFiles(initialSelection);
 
         const exts = Array.from(new Set(files.map(f => {
             const parts = f.path.split('.');
             return parts.length > 1 ? parts.pop()?.toLowerCase() : 'no-ext';
         }))).filter(Boolean) as string[];
         setExtensions(exts.sort());
-
     }, [tree]);
 
-    // Notify parent of changes
-    useEffect(() => {
-        const selected = allFiles.filter(f => selectedFiles.has(f.path));
-        onSelectionChange(selected);
-    }, [selectedFiles, allFiles]); // Intentionally omitting onSelectionChange from deps to avoid loops if parent isn't memoized
-
     const handleToggle = (path: string, checked: boolean) => {
-        const newSelection = new Set(selectedFiles);
+        const newSet = new Set(selectedFilesSet);
         if (checked) {
-            newSelection.add(path);
+            newSet.add(path);
         } else {
-            newSelection.delete(path);
+            newSet.delete(path);
         }
-        setSelectedFiles(newSelection);
+        // Notify parent with full objects
+        const newSelection = allFiles.filter(f => newSet.has(f.path));
+        onSelectionChange(newSelection);
     };
 
     const handleSelectExtension = (ext: string, checked: boolean) => {
-        const newSelection = new Set(selectedFiles);
+        const newSet = new Set(selectedFilesSet);
         allFiles.forEach(f => {
             const fExt = f.path.split('.').pop()?.toLowerCase() || 'no-ext';
             if (fExt === ext) {
-                if (checked) newSelection.add(f.path);
-                else newSelection.delete(f.path);
+                if (checked) newSet.add(f.path);
+                else newSet.delete(f.path);
             }
         });
-        setSelectedFiles(newSelection);
+        const newSelection = allFiles.filter(f => newSet.has(f.path));
+        onSelectionChange(newSelection);
     };
 
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2 pb-4 border-b">
                  <div className="text-sm font-medium w-full mb-2">Filter by extension:</div>
-                 {extensions.map(ext => (
+                 {extensions.map(ext => {
+                     const filesWithExt = allFiles.filter(f => (f.path.split('.').pop()?.toLowerCase() || 'no-ext') === ext);
+                     const allChecked = filesWithExt.every(f => selectedFilesSet.has(f.path));
+                     const someChecked = !allChecked && filesWithExt.some(f => selectedFilesSet.has(f.path));
+
+                     return (
                      <div key={ext} className="flex items-center space-x-1 bg-secondary px-2 py-1 rounded-full text-xs">
                          <Checkbox
                             id={`ext-${ext}`}
-                            checked={allFiles.filter(f => (f.path.split('.').pop()?.toLowerCase() || 'no-ext') === ext).every(f => selectedFiles.has(f.path))}
+                            checked={allChecked || someChecked} // Visual
+                            className={cn(someChecked && "opacity-50")}
                             onCheckedChange={(checked) => handleSelectExtension(ext, checked as boolean)}
-                            className="w-3 h-3"
                          />
                          <label htmlFor={`ext-${ext}`} className="cursor-pointer select-none">.{ext}</label>
                      </div>
-                 ))}
+                 )})}
             </div>
 
             <div className="overflow-x-auto">
@@ -192,8 +197,9 @@ export function FileTree({ tree, onSelectionChange }: FileTreeProps) {
                         key={name}
                         name={name}
                         node={node}
-                        selectedFiles={selectedFiles}
+                        selectedFilesSet={selectedFilesSet}
                         onToggle={handleToggle}
+                        outliers={outliers}
                     />
                 ))}
             </div>
