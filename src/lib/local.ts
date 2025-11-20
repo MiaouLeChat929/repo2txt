@@ -7,6 +7,7 @@ export interface LocalFile {
     urlType: 'local' | 'zip';
     fileObject?: File; // For local files
     zipEntry?: JSZip.JSZipObject; // For zip files
+    size?: number; // File size in bytes
 }
 
 export interface ExtractedZip {
@@ -25,11 +26,18 @@ export async function extractZipContents(zipFile: File): Promise<ExtractedZip> {
         // Process each file in the zip
         for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
             if (!zipEntry.dir) {
+                // Attempt to get size. standard zipEntry doesn't always expose it publicly in types,
+                // but typically available on internal _data or we can assume 0 if missing.
+                // Casting to any to access _data if needed, or using a safer fallback if possible.
+                // In JSZip v3, usually available via `_data.uncompressedSize` for synchronous access check.
+                const size = (zipEntry as any)._data?.uncompressedSize || 0;
+
                 tree.push({
                     path: relativePath,
                     type: 'blob',
                     urlType: 'zip',
-                    zipEntry: zipEntry
+                    zipEntry: zipEntry,
+                    size: size
                 });
                 pathZipMap[relativePath] = zipEntry;
 
@@ -59,7 +67,8 @@ export async function processLocalDirectory(files: FileList | File[]): Promise<{
             type: 'blob', // We only get files from input[webkitdirectory]
             urlType: 'local',
             url: URL.createObjectURL(file),
-            fileObject: file
+            fileObject: file,
+            size: file.size
         });
 
         if (file.webkitRelativePath.endsWith('.gitignore')) {
