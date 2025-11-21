@@ -4,8 +4,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { FolderSearch, Info, ExternalLink } from 'lucide-react';
-import { parseRepoUrl, getReferences, fetchRepoSha, fetchRepoTree } from '@/lib/github';
-import { GitHubFile } from '@/lib/github';
+import {
+    parseRepoUrl,
+    getReferences,
+    fetchRepoSha,
+    fetchRepoTree,
+    GitHubFile,
+    GitHubNotFoundError,
+    GitHubRateLimitError,
+    GitHubAuthError
+} from '@/lib/github';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -70,14 +78,14 @@ export function GitHubForm({ onTreeFetched, onLoading }: GitHubFormProps) {
             let message = "Error fetching repository";
             let description = error.message;
 
-            if (error.message.includes("404")) {
+            if (error instanceof GitHubNotFoundError) {
                 description = "Repository not found. Check the URL or verify it is public (or provide a token).";
-            } else if (error.message.includes("403") || error.message.includes("rate limit")) {
+            } else if (error instanceof GitHubRateLimitError) {
                 message = "API Limit Reached";
                 description = "GitHub API rate limit exceeded. Please use a Personal Access Token.";
-            } else if (error.message.includes("401")) {
+            } else if (error instanceof GitHubAuthError) {
                 message = "Authentication Failed";
-                description = "Invalid token. Please check your Personal Access Token.";
+                description = "Invalid token or access forbidden. Please check your Personal Access Token.";
             }
 
             toast.error(message, { description });

@@ -1,5 +1,6 @@
 // Statistics & Outlier Detection
 // See context.md for algorithms
+// Refactored for Smart Context System
 
 import { FileItem, isFileItem } from '../file-processing';
 

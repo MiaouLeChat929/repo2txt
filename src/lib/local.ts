@@ -70,7 +70,7 @@ export async function processLocalDirectory(files: FileList | File[]): Promise<{
     return { tree, gitignoreContent };
 }
 
-function readFileAsText(file: File): Promise<string> {
+export function readFileAsText(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target?.result as string);
