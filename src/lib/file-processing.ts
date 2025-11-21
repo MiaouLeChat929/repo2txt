@@ -97,8 +97,8 @@ export function generateOutputText(contents: FileContent[]): { text: string, tok
 export function buildFileTree(files: FileItem[]): TreeNode {
     const tree: any = {};
     files.forEach(item => {
-        item.path = item.path.startsWith('/') ? item.path : '/' + item.path;
-        const pathParts = item.path.split('/');
+        const normalizedPath = item.path.startsWith('/') ? item.path : '/' + item.path;
+        const pathParts = normalizedPath.split('/');
         let currentLevel = tree;
 
         pathParts.forEach((part, index) => {

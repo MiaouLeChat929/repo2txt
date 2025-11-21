@@ -5,12 +5,8 @@ import { LocalForm } from '@/components/features/local/LocalForm'
 import { FileTree } from '@/components/features/file-tree/FileTree'
 import { OutputDisplay } from '@/components/features/output/OutputDisplay'
 import { SmartControls } from '@/components/features/controls/SmartControls'
-import { generateOutputText } from '@/lib/file-processing'
-import { fetchGitHubFileContents, GitHubFile } from '@/lib/github'
-import { toast, Toaster } from 'sonner'
-import JSZip from 'jszip'
+import { Toaster } from 'sonner'
 import { useRepoController } from '@/hooks/useRepoController'
-import { generateSmartFilename } from '@/lib/utils'
 
 function App() {
   const { state, actions } = useRepoController();
@@ -18,134 +14,9 @@ function App() {
   // Deconstruct state
   const {
     activeTab, rawFiles, fileTree, selectedFiles, outputText, loading,
-    githubToken, zipMap, detectedFramework, manualFramework, precision,
-    experimentalStats, outliers, repoSource
+    detectedFramework, manualFramework, precision,
+    experimentalStats, outliers
   } = state;
-
-  const handleGenerate = async () => {
-    if (selectedFiles.length === 0) {
-      toast.error("Please select at least one file")
-      return
-    }
-    actions.setLoading(true)
-    try {
-      let contents = [];
-      const isGithub = activeTab === 'github';
-
-      if (isGithub) {
-         contents = await fetchGitHubFileContents(selectedFiles as GitHubFile[], githubToken);
-      } else {
-         contents = await Promise.all(selectedFiles.map(async (file: any) => {
-             if (file.urlType === 'zip') {
-                 const entry = zipMap[file.path];
-                 if (!entry) throw new Error(`Zip entry not found for ${file.path}`);
-                 const text = await entry.async('text');
-                 return { url: '', path: file.path, text };
-             } else if (file.urlType === 'local') {
-                 if (file.fileObject) {
-                      const text = await new Promise<string>((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => resolve(e.target?.result as string);
-                        reader.onerror = reject;
-                        reader.readAsText(file.fileObject);
-                    });
-                    return { url: file.url, path: file.path, text };
-                 } else {
-                      const response = await fetch(file.url);
-                      const text = await response.text();
-                      return { url: file.url, path: file.path, text };
-                 }
-             }
-             return { url: '', path: '', text: ''};
-         }));
-      }
-
-      const { text } = generateOutputText(contents);
-      actions.setOutputText(text);
-      toast.success("Text generated successfully");
-    } catch (error: any) {
-      console.error(error);
-      toast.error("Failed to generate text", { description: error.message });
-    } finally {
-      actions.setLoading(false)
-    }
-  }
-
-  const getOutputFilename = (ext: string) => {
-      // Use repoSource from state
-      return generateSmartFilename(repoSource || 'unknown-source', ext);
-  };
-
-  const handleDownloadText = () => {
-      const blob = new Blob([outputText], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = getOutputFilename('txt');
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-  }
-
-  const handleDownloadZip = async () => {
-    if (selectedFiles.length === 0) {
-        toast.error("Please select at least one file")
-        return
-    }
-    actions.setLoading(true)
-    try {
-        const zip = new JSZip();
-        const isGithub = activeTab === 'github';
-        let contents = [];
-
-        if (isGithub) {
-            contents = await fetchGitHubFileContents(selectedFiles as GitHubFile[], githubToken);
-        } else {
-            contents = await Promise.all(selectedFiles.map(async (file: any) => {
-                if (file.urlType === 'zip') {
-                    const entry = zipMap[file.path];
-                    const text = await entry.async('text');
-                    return { url: '', path: file.path, text };
-                } else if (file.urlType === 'local') {
-                if (file.fileObject) {
-                    const text = await new Promise<string>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => resolve(e.target?.result as string);
-                        reader.readAsText(file.fileObject);
-                    });
-                    return { url: file.url, path: file.path, text };
-                    }
-                    const response = await fetch(file.url);
-                    const text = await response.text();
-                    return { url: file.url, path: file.path, text };
-                }
-                return { url: '', path: '', text: ''};
-            }));
-        }
-
-        contents.forEach(file => {
-            zip.file(file.path, file.text);
-        });
-
-        const blob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = getOutputFilename('zip');
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        toast.success("Zip downloaded successfully");
-
-    } catch (error: any) {
-        console.error(error);
-        toast.error("Failed to create zip", { description: error.message });
-    } finally {
-        actions.setLoading(false)
-    }
-  }
 
   return (
     <Layout>
@@ -195,6 +66,7 @@ function App() {
                     onPrecisionChange={actions.setPrecision}
                     experimentalStats={experimentalStats}
                     onExperimentalStatsChange={actions.setExperimentalStats}
+                    isAutoDetected={!manualFramework}
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -216,9 +88,9 @@ function App() {
                     <div className="lg:col-span-7 xl:col-span-8">
                         <OutputDisplay
                             text={outputText}
-                            onGenerate={handleGenerate}
-                            onDownloadText={handleDownloadText}
-                            onDownloadZip={handleDownloadZip}
+                            onGenerate={actions.generateOutput}
+                            onDownloadText={actions.downloadText}
+                            onDownloadZip={actions.downloadZip}
                             canGenerate={selectedFiles.length > 0}
                         />
                     </div>

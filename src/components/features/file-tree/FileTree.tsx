@@ -15,7 +15,6 @@ interface FileTreeProps {
 const getAllFiles = (node: TreeNode): FileItem[] => {
     let files: FileItem[] = [];
     Object.values(node).forEach(value => {
-        // Use helper to detect files (blob or file type)
         if (isFileItem(value as FileItem | TreeNode)) {
             files.push(value as FileItem);
         } else if (typeof value === 'object' && value !== null) {
@@ -76,7 +75,7 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
                     {name}
                 </span>
                 {isOutlier && (
-                    <AlertTriangle className="w-3 h-3 text-amber-500 ml-2" title="Statistically large file (Outlier)" />
+                    <AlertTriangle className="w-3 h-3 text-amber-500 ml-2" title="High token count (Possible auto-generated or lock file)" />
                 )}
             </div>
         );
@@ -89,9 +88,9 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
         <div>
             <div className="flex items-center py-1 hover:bg-accent/50 rounded px-2" style={{ paddingLeft: `${level * 1.5}rem` }}>
                 <Checkbox
-                    checked={dirState.checked || dirState.indeterminate} // Visual hack
+                    checked={dirState.indeterminate ? 'indeterminate' : dirState.checked}
                     onCheckedChange={(checked) => handleCheckboxChange(checked as boolean)}
-                    className={cn("mr-2", dirState.indeterminate && "opacity-50")}
+                    className="mr-2"
                 />
                  <button
                     onClick={() => setIsOpen(!isOpen)}
@@ -171,19 +170,19 @@ export function FileTree({ tree, selectedFiles, onSelectionChange, outliers }: F
 
     return (
         <div className="space-y-4">
+            {/* Extension Filter - Kept as useful feature */}
             <div className="flex flex-wrap gap-2 pb-4 border-b">
                  <div className="text-sm font-medium w-full mb-2">Filter by extension:</div>
                  {extensions.map(ext => {
                      const filesWithExt = allFiles.filter(f => (f.path.split('.').pop()?.toLowerCase() || 'no-ext') === ext);
-                     const allChecked = filesWithExt.every(f => selectedFilesSet.has(f.path));
+                     const allChecked = filesWithExt.length > 0 && filesWithExt.every(f => selectedFilesSet.has(f.path));
                      const someChecked = !allChecked && filesWithExt.some(f => selectedFilesSet.has(f.path));
 
                      return (
                      <div key={ext} className="flex items-center space-x-1 bg-secondary px-2 py-1 rounded-full text-xs">
                          <Checkbox
                             id={`ext-${ext}`}
-                            checked={allChecked || someChecked} // Visual
-                            className={cn(someChecked && "opacity-50")}
+                            checked={someChecked ? 'indeterminate' : allChecked}
                             onCheckedChange={(checked) => handleSelectExtension(ext, checked as boolean)}
                          />
                          <label htmlFor={`ext-${ext}`} className="cursor-pointer select-none">.{ext}</label>

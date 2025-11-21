@@ -20,6 +20,35 @@ export interface FileContent {
     url: string;
 }
 
+// Custom Error Classes
+export class GitHubError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "GitHubError";
+    }
+}
+
+export class GitHubNotFoundError extends GitHubError {
+    constructor(message = "Repository or resource not found") {
+        super(message);
+        this.name = "GitHubNotFoundError";
+    }
+}
+
+export class GitHubRateLimitError extends GitHubError {
+    constructor(message = "API rate limit exceeded") {
+        super(message);
+        this.name = "GitHubRateLimitError";
+    }
+}
+
+export class GitHubAuthError extends GitHubError {
+    constructor(message = "Authentication failed") {
+        super(message);
+        this.name = "GitHubAuthError";
+    }
+}
+
 export function parseRepoUrl(url: string): RepoInfo {
     url = url.replace(/\/$/, '');
     const urlPattern = /^https:\/\/github\.com\/([^\/]+)\/([^\/]+)(\/tree\/(.+))?$/;
@@ -48,9 +77,8 @@ export async function getReferences(owner: string, repo: string, token?: string)
         fetch(`https://api.github.com/repos/${owner}/${repo}/git/matching-refs/tags/`, { headers })
     ]);
 
-    if (!branchesResponse.ok || !tagsResponse.ok) {
-        throw new Error('Failed to fetch references');
-    }
+    if (!branchesResponse.ok) handleFetchError(branchesResponse);
+    if (!tagsResponse.ok) handleFetchError(tagsResponse);
 
     const branches = await branchesResponse.json();
     const tags = await tagsResponse.json();
@@ -117,11 +145,20 @@ export async function fetchGitHubFileContents(files: GitHubFile[], token?: strin
 }
 
 function handleFetchError(response: Response) {
-    if (response.status === 403 && response.headers.get('X-RateLimit-Remaining') === '0') {
-        throw new Error('GitHub API rate limit exceeded. Please try again later or provide a valid access token to increase your rate limit.');
-    }
     if (response.status === 404) {
-        throw new Error(`Repository, branch, or path not found. Please check that the URL, branch/tag, and path are correct and accessible.`);
+        throw new GitHubNotFoundError(`Repository, branch, or path not found. Please check that the URL, branch/tag, and path are correct and accessible.`);
     }
-    throw new Error(`Failed to fetch repository data. Status: ${response.status}. Please check your input and try again.`);
+    if (response.status === 403) {
+        const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+        if (rateLimitRemaining === '0') {
+            throw new GitHubRateLimitError('GitHub API rate limit exceeded. Please try again later or provide a valid access token to increase your rate limit.');
+        }
+        // Check for other 403 reasons (e.g. repo access forbidden)
+        throw new GitHubAuthError('Access forbidden. You may need a valid access token for this repository.');
+    }
+    if (response.status === 401) {
+        throw new GitHubAuthError('Invalid token. Please check your Personal Access Token.');
+    }
+
+    throw new GitHubError(`Failed to fetch repository data. Status: ${response.status}. Please check your input and try again.`);
 }
