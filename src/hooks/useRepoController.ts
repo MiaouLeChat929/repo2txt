@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
-import { FileItem, buildFileTree, TreeNode, generateOutputText } from '@/lib/file-processing';
+import { FileItem, buildFileTree, generateOutputText } from '@/lib/file-processing';
 import { fetchGitHubFileContents, GitHubFile, GitHubNotFoundError, GitHubRateLimitError, GitHubAuthError, FileContent } from '@/lib/github';
 import { detectFramework, FrameworkID, PrecisionLevel } from '@/lib/core/heuristics';
 import { applySmartFilter } from '@/lib/core/smart-filter';
 import { calculateStatistics } from '@/lib/core/statistics';
 import { generateSmartFilename } from '@/lib/utils';
-import { readFileAsText } from '@/lib/local';
+import { readFileAsText, LocalFile } from '@/lib/local';
 import JSZip from 'jszip';
 import { toast } from 'sonner';
 
@@ -27,8 +27,6 @@ export function useRepoController() {
   const [experimentalStats, setExperimentalStats] = useState(false);
 
   // 2. Derived State
-  const effectiveFramework = manualFramework || detectedFramework;
-
   const fileTree = useMemo(() => buildFileTree(rawFiles), [rawFiles]);
 
   const selectedFiles = useMemo(() => {
@@ -93,10 +91,10 @@ export function useRepoController() {
       setUserSelectedFiles(newSet);
   }, []);
 
-  const handleError = (error: any, defaultMessage: string) => {
+  const handleError = (error: unknown, defaultMessage: string) => {
         console.error(error);
         let message = defaultMessage;
-        let description = error.message;
+        let description = (error instanceof Error) ? error.message : "Unknown error";
 
         if (error instanceof GitHubNotFoundError) {
              description = "Repository not found. Check the URL or verify it is public (or provide a token).";
@@ -115,17 +113,26 @@ export function useRepoController() {
       if (isGithub) {
           return await fetchGitHubFileContents(selectedFiles as GitHubFile[], githubToken);
       } else {
-          return await Promise.all(selectedFiles.map(async (file: any) => {
+          return await Promise.all(selectedFiles.map(async (file: FileItem) => {
+             const localFile = file as LocalFile;
              if (file.urlType === 'zip') {
+                 // Try to find in zipMap first
                  const entry = zipMap[file.path];
-                 if (!entry) throw new Error(`Zip entry not found for ${file.path}`);
-                 const text = await entry.async('text');
-                 return { url: '', path: file.path, text };
+                 if (entry) {
+                     const text = await entry.async('text');
+                     return { url: '', path: file.path, text };
+                 }
+                 // Fallback to zipEntry on file if present
+                 if (localFile.zipEntry) {
+                     const text = await localFile.zipEntry.async('text');
+                     return { url: '', path: file.path, text };
+                 }
+                 throw new Error(`Zip entry not found for ${file.path}`);
              } else if (file.urlType === 'local') {
-                 if (file.fileObject) {
-                      const text = await readFileAsText(file.fileObject);
-                      return { url: file.url, path: file.path, text };
-                 } else {
+                 if (localFile.fileObject) {
+                      const text = await readFileAsText(localFile.fileObject);
+                      return { url: file.url || '', path: file.path, text };
+                 } else if (file.url) {
                       const response = await fetch(file.url);
                       const text = await response.text();
                       return { url: file.url, path: file.path, text };
@@ -147,7 +154,7 @@ export function useRepoController() {
       const { text } = generateOutputText(contents);
       setOutputText(text);
       toast.success("Text generated successfully");
-    } catch (error: any) {
+    } catch (error: unknown) {
         handleError(error, "Failed to generate text");
     } finally {
       setLoading(false);
@@ -198,7 +205,7 @@ export function useRepoController() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         toast.success("Zip downloaded successfully");
-    } catch (error: any) {
+    } catch (error: unknown) {
         handleError(error, "Failed to create zip");
     } finally {
         setLoading(false);

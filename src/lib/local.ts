@@ -7,6 +7,7 @@ export interface LocalFile {
     urlType: 'local' | 'zip';
     fileObject?: File; // For local files
     zipEntry?: JSZip.JSZipObject; // For zip files
+    size?: number;
 }
 
 export interface ExtractedZip {
@@ -42,8 +43,9 @@ export async function extractZipContents(zipFile: File): Promise<ExtractedZip> {
         }
 
         return { tree, gitignoreContent, pathZipMap };
-    } catch (error: any) {
-        throw new Error(`Failed to extract zip contents: ${error.message}`);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        throw new Error(`Failed to extract zip contents: ${message}`);
     }
 }
 
@@ -59,7 +61,8 @@ export async function processLocalDirectory(files: FileList | File[]): Promise<{
             type: 'blob', // We only get files from input[webkitdirectory]
             urlType: 'local',
             url: URL.createObjectURL(file),
-            fileObject: file
+            fileObject: file,
+            size: file.size
         });
 
         if (file.webkitRelativePath.endsWith('.gitignore')) {

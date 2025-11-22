@@ -74,9 +74,9 @@ export function GitHubForm({ onTreeFetched, onLoading }: GitHubFormProps) {
 
             onTreeFetched(tree, token, repoUrl); // Pass repoUrl as source
             toast.success("Repository structure fetched successfully");
-        } catch (error: any) {
+        } catch (error: unknown) {
             let message = "Error fetching repository";
-            let description = error.message;
+            let description = error instanceof Error ? error.message : "Unknown error";
 
             if (error instanceof GitHubNotFoundError) {
                 description = "Repository not found. Check the URL or verify it is public (or provide a token).";

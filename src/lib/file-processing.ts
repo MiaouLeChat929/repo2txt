@@ -12,11 +12,13 @@ export interface TreeNode {
 // Helper to check if an item is a file (blob) or directory (tree)
 // Both GitHubFile and LocalFile use type: 'blob' for files and 'tree' for directories (though LocalFile only produces blobs usually)
 export function isFileItem(item: FileItem | TreeNode): item is FileItem {
-    return 'type' in item && (item.type === 'blob' || item.type === 'file'); // Handle both just in case, though definition says 'blob'
+    return 'type' in item && (item.type === 'blob'); // Handle both just in case, though definition says 'blob'
 }
 
 // Sort contents alphabetically and by directory/file
-export function sortContents(a: FileItem, b: FileItem) {
+interface HasPath { path: string; }
+
+export function sortContents(a: HasPath, b: HasPath) {
     if (!a || !b || !a.path || !b.path) return 0;
 
     const aPath = a.path.split('/');
@@ -40,25 +42,33 @@ export function generateOutputText(contents: FileContent[]): { text: string, tok
     let index = '';
 
     // Ensure contents is an array before sorting
-    const sortedContents = Array.isArray(contents) ? [...contents].sort((a, b) => sortContents(a as any, b as any)) : [contents];
+    const sortedContents = Array.isArray(contents) ? [...contents].sort(sortContents) : [contents];
 
     // Create a directory tree structure
-    const tree: TreeNode = {};
+    interface IndexNode { [key: string]: IndexNode | null }
+    const tree: IndexNode = {};
+
     sortedContents.forEach(item => {
         const parts = item.path.split('/');
-        let currentLevel: any = tree;
+        let currentLevel: IndexNode = tree;
+
         parts.forEach((part, i) => {
-            if (!currentLevel[part]) {
-                currentLevel[part] = i === parts.length - 1 ? null : {};
+            if (i === parts.length - 1) {
+                currentLevel[part] = null;
+            } else {
+                if (!currentLevel[part]) {
+                    currentLevel[part] = {};
+                }
+                // We know it's not null here because we just assigned {} or it existed as object
+                currentLevel = currentLevel[part] as IndexNode;
             }
-            currentLevel = currentLevel[part];
         });
     });
 
     // Build the index recursively
-    function buildIndex(node: any, prefix = '') {
+    function buildIndex(node: IndexNode, prefix = '') {
         let result = '';
-        const entries = Object.entries(node);
+        const entries = Object.entries(node || {}); // Handle null leaf
 
         entries.forEach(([name, subNode], index) => {
             const isLastItem = index === entries.length - 1;
@@ -95,18 +105,32 @@ export function generateOutputText(contents: FileContent[]): { text: string, tok
 }
 
 export function buildFileTree(files: FileItem[]): TreeNode {
-    const tree: any = {};
+    const tree: TreeNode = {};
     files.forEach(item => {
         const normalizedPath = item.path.startsWith('/') ? item.path : '/' + item.path;
         const pathParts = normalizedPath.split('/');
-        let currentLevel = tree;
+        let currentLevel: TreeNode = tree;
 
         pathParts.forEach((part, index) => {
             part = part === '' ? './' : part;
-            if (!currentLevel[part]) {
-                currentLevel[part] = index === pathParts.length - 1 ? item : {};
+
+            if (index === pathParts.length - 1) {
+                currentLevel[part] = item;
+            } else {
+                if (!currentLevel[part]) {
+                    currentLevel[part] = {};
+                }
+                // Narrowing: if it was set to item, it's a conflict (file treated as dir).
+                // We assume 'Directories First' or valid paths.
+                // But strictly, currentLevel[part] is TreeNode | FileItem.
+                // We need to assert it's TreeNode to continue traversal.
+                if (isFileItem(currentLevel[part] as FileItem | TreeNode)) {
+                    // Overwrite file with directory if conflict? Or ignore?
+                    // In standard file systems, this is impossible.
+                    // For safety, we can treat it as TreeNode if we just initialized it.
+                }
+                currentLevel = currentLevel[part] as TreeNode;
             }
-            currentLevel = currentLevel[part];
         });
     });
     return tree;
