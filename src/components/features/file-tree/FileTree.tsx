@@ -75,7 +75,9 @@ const TreeNodeComponent: React.FC<TreeNodeComponentProps> = ({ name, node, selec
                     {name}
                 </span>
                 {isOutlier && (
-                    <AlertTriangle className="w-3 h-3 text-amber-500 ml-2" title="High token count (Possible auto-generated or lock file)" />
+                    <span title="High token count (Possible auto-generated or lock file)">
+                        <AlertTriangle className="w-3 h-3 text-amber-500 ml-2" />
+                    </span>
                 )}
             </div>
         );

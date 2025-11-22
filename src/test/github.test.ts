@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parseRepoUrl, getReferences } from '../lib/github';
+import { parseRepoUrl, getReferences, fetchRepoSha } from '../lib/github';
 
 // Mock global fetch
 const fetchMock = vi.fn();
@@ -47,6 +47,45 @@ describe('github.ts', () => {
             expect(refs.branches).toEqual(['main', 'dev']);
             expect(refs.tags).toEqual(['v1.0']);
             expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    describe('fetchRepoSha', () => {
+        it('should fetch commit sha for root path', async () => {
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ commit: { tree: { sha: 'root-sha' } } })
+            });
+
+            const sha = await fetchRepoSha('owner', 'repo', 'main', '');
+            expect(sha).toBe('root-sha');
+            expect(fetchMock).toHaveBeenCalledWith(
+                expect.stringContaining('/commits/main'),
+                expect.any(Object)
+            );
+        });
+
+        it('should fetch object sha for file path', async () => {
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ sha: 'file-sha' })
+            });
+
+            const sha = await fetchRepoSha('owner', 'repo', 'main', 'src/index.ts');
+            expect(sha).toBe('file-sha');
+            expect(fetchMock).toHaveBeenCalledWith(
+                expect.stringContaining('/contents/src/index.ts'),
+                expect.any(Object)
+            );
+        });
+
+        it('should throw error for subdirectory path (array response)', async () => {
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                json: async () => [{ name: 'file1' }, { name: 'file2' }] // Array response
+            });
+
+            await expect(fetchRepoSha('owner', 'repo', 'main', 'src/dir')).rejects.toThrow("Processing subdirectories directly is not fully supported");
         });
     });
 });

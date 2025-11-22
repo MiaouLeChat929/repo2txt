@@ -2,14 +2,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FolderOpen, Upload } from 'lucide-react';
 import { processLocalDirectory, extractZipContents, LocalFile } from '@/lib/local';
 import { toast } from 'sonner';
+import JSZip from 'jszip';
 
 interface LocalFormProps {
     onTreeFetched: (tree: LocalFile[], token?: string, sourceName?: string) => void;
     onLoading: (loading: boolean) => void;
-    onZipMapUpdate: (map: any) => void;
+    onZipMapUpdate: (map: Record<string, JSZip.JSZipObject>) => void;
 }
 
 export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFormProps) {
+
+    // Custom props for input to allow webkitdirectory
+    const directoryInputProps = {
+        webkitdirectory: "",
+        directory: ""
+    } as React.InputHTMLAttributes<HTMLInputElement>;
 
     const handleDirectorySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return;
@@ -33,9 +40,10 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
             onZipMapUpdate({});
             onTreeFetched(filteredTree, undefined, folderName);
             toast.success("Directory loaded successfully");
-        } catch (error: any) {
+        } catch (error: unknown) {
+             const message = error instanceof Error ? error.message : "Unknown error";
              toast.error("Error processing directory", {
-                description: error.message
+                description: message
             });
         } finally {
             onLoading(false);
@@ -60,9 +68,10 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
             onZipMapUpdate(pathZipMap);
             onTreeFetched(filteredTree, undefined, zipName);
              toast.success("Zip file loaded successfully");
-        } catch (error: any) {
+        } catch (error: unknown) {
+             const message = error instanceof Error ? error.message : "Unknown error";
              toast.error("Error processing zip file", {
-                description: error.message
+                description: message
             });
         } finally {
             onLoading(false);
@@ -75,12 +84,10 @@ export function LocalForm({ onTreeFetched, onLoading, onZipMapUpdate }: LocalFor
             <Card className="w-full cursor-pointer hover:bg-accent/50 transition-colors relative overflow-hidden">
                 <input
                     type="file"
-                    webkitdirectory=""
-                    directory=""
                     multiple
                     className="absolute inset-0 opacity-0 cursor-pointer z-10"
                     onChange={handleDirectorySelect}
-                    {...({} as any)} // Bypass TS check for webkitdirectory
+                    {...directoryInputProps}
                 />
                 <CardHeader className="text-center pb-2">
                     <div className="mx-auto bg-primary/10 p-3 rounded-full w-fit mb-2">

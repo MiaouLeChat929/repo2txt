@@ -64,6 +64,25 @@ export function parseRepoUrl(url: string): RepoInfo {
     };
 }
 
+interface GitHubRefObject {
+    ref: string;
+    url: string;
+    object: {
+        type: string;
+        sha: string;
+        url: string;
+    }
+}
+
+interface GitHubTreeItem {
+    path: string;
+    mode: string;
+    type: 'blob' | 'tree';
+    sha: string;
+    size?: number;
+    url: string;
+}
+
 export async function getReferences(owner: string, repo: string, token?: string): Promise<{ branches: string[], tags: string[] }> {
     const headers: HeadersInit = {
         'Accept': 'application/vnd.github+json'
@@ -80,28 +99,64 @@ export async function getReferences(owner: string, repo: string, token?: string)
     if (!branchesResponse.ok) handleFetchError(branchesResponse);
     if (!tagsResponse.ok) handleFetchError(tagsResponse);
 
-    const branches = await branchesResponse.json();
-    const tags = await tagsResponse.json();
+    const branches: GitHubRefObject[] = await branchesResponse.json();
+    const tags: GitHubRefObject[] = await tagsResponse.json();
 
     return {
-        branches: branches.map((b: any) => b.ref.split("/").slice(2).join("/")),
-        tags: tags.map((t: any) => t.ref.split("/").slice(2).join("/"))
+        branches: branches.map((b) => b.ref.split("/").slice(2).join("/")),
+        tags: tags.map((t) => t.ref.split("/").slice(2).join("/"))
     };
 }
 
 export async function fetchRepoSha(owner: string, repo: string, ref: string, path: string, token?: string): Promise<string> {
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path ? `${path}` : ''}${ref ? `?ref=${ref}` : ''}`;
     const headers: HeadersInit = {
-        'Accept': 'application/vnd.github.object+json'
+        'Accept': 'application/vnd.github+json'
     };
     if (token) {
         headers['Authorization'] = `token ${token}`;
     }
+
+    // If no path is provided, we need the tree SHA of the root (commit SHA)
+    if (!path) {
+        const commitUrl = `https://api.github.com/repos/${owner}/${repo}/commits/${ref || 'HEAD'}`;
+        const response = await fetch(commitUrl, { headers });
+        if (!response.ok) {
+            handleFetchError(response);
+        }
+        const data = await response.json();
+        return data.commit.tree.sha;
+    }
+
+    // If path is provided, try to get the content info
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}${ref ? `?ref=${ref}` : ''}`;
+    // We prefer object (file) but if it's a dir, we might get array.
+    // The 'application/vnd.github.object+json' header suggests we want object properties,
+    // but for directory it might still return array or error if not supported by this specific media type in all cases?
+    // Standard API returns array for dir.
+    // Let's stick to standard JSON.
+
     const response = await fetch(url, { headers });
     if (!response.ok) {
         handleFetchError(response);
     }
     const data = await response.json();
+
+    if (Array.isArray(data)) {
+         // It's a directory. We can't get the tree SHA directly from /contents list easily.
+         // But if we are here, the user likely wants to process this directory.
+         // We should probably implement a way to find the SHA of this directory from parent?
+         // For now, let's throw or handle it?
+         // Actually, if the user pasted a tree URL `.../tree/main/src`, we can treat it as a request to fetch `src` recursively.
+         // We need the SHA of `src`.
+         // Optimization: Use `git/trees` on the Ref and look for path?
+         // Or easier: Fetch the ROOT tree recursively (if size allows) and filter?
+
+         // Given the "fix issues" constraint, I will assume we can fallback to "Unknown" or throw a helpful error?
+         // OR: try to fetch the SHA via `git/trees`.
+
+         throw new GitHubError("Processing subdirectories directly is not fully supported via this method yet. Please use the repository root.");
+    }
+
     return data.sha;
 }
 
@@ -120,7 +175,7 @@ export async function fetchRepoTree(owner: string, repo: string, sha: string, to
     const data = await response.json();
 
     // Process and filter the tree
-    return data.tree.map((item: any) => ({
+    return data.tree.map((item: GitHubTreeItem) => ({
         ...item,
         urlType: 'github'
     }));
